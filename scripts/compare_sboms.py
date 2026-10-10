@@ -44,6 +44,8 @@ def component_identity(row: dict[str, object]) -> tuple[str, str, str]:
     ecosystem = clean(row.get("ecosystem")) or ptype
     name = clean(row.get("name")) or pname
     version = clean(row.get("version")) or pversion
+    if version in {"unknown", "unspecified", "(unknown)"}:
+        version = ""
     group = clean(row.get("group"))
     if ecosystem == "npm" and group and name and not name.startswith(group + "/"):
         name = group + "/" + name
@@ -66,6 +68,10 @@ def load_truth(state: str) -> dict[str, list[dict[str, object]]]:
                 continue
             row["_identity"] = identity
             row["_purl"] = row.get("purl", "").strip()
+            row["_source_identity"] = (
+                clean(row.get("ecosystem")), clean(row.get("source_name")),
+                clean(row.get("source_version")),
+            ) if row.get("source_name", "").strip() else None
             truth[row.get("image_id", "").strip()].append(row)
     # The study's component-level metric counts unique ecosystem/name/version
     # identities. Multiple installed copies at different paths are occurrences,
@@ -132,8 +138,9 @@ def match_components(
                 chosen, match_type = exact[0], "exact_purl"
         if chosen is None:
             same_identity = [i for i in unmatched_expected if identity == expected[i].get("_identity")]
-            if same_identity and identity and identity[1] and identity[2]:
-                chosen, match_type = same_identity[0], "normalized_identity"
+            if same_identity and identity and identity[1]:
+                chosen = same_identity[0]
+                match_type = "normalized_identity" if identity[2] else "normalized_identity_unversioned"
         if chosen is None and identity and identity[1] and identity[2]:
             name_version = [i for i in unmatched_expected if identity[1:] == expected[i].get("_identity", (None, None, None))[1:]]
             if name_version:
@@ -153,7 +160,7 @@ def match_components(
 def csv_write(path: pathlib.Path, rows: list[dict[str, object]], fields: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -186,6 +193,8 @@ def main() -> int:
                 metrics.append({
                     "image_id": image_id, "tool": tool, "truth_state": args.truth_state,
                     "status": "missing_sbom", "sbom_path": "", "tp": "", "fp": "", "fn": "",
+                    "source_aliases": "", "other_unmatched": "",
+                    "unversioned_matches": "",
                     "precision": "", "recall": "", "f1": "",
                 })
                 per_tool[tool] = set()
@@ -199,6 +208,14 @@ def main() -> int:
                          if purl_parts(str(component.get("purl", "")))[0] in expected_ecosystems]
             matches, extras, missed = match_components(predicted, expected)
             tp, fp, fn = len(matches), len(extras), len(missed)
+            unversioned_matches = sum(
+                not expected_component.get("_identity", ("", "", ""))[2]
+                for _, expected_component, _ in matches
+            )
+            source_aliases = sum(
+                1 for component in extras
+                if any(component.get("_identity") == row.get("_source_identity") for row in expected)
+            )
             precision = tp / (tp + fp) if tp + fp else (1.0 if fn == 0 else 0.0)
             recall = tp / (tp + fn) if tp + fn else (1.0 if fp == 0 else 0.0)
             f1 = (2 * precision * recall / (precision + recall)) if precision + recall else 0.0
@@ -206,24 +223,32 @@ def main() -> int:
                 "image_id": image_id, "tool": tool, "truth_state": args.truth_state,
                 "status": "ok" if expected else "no_ground_truth",
                 "sbom_path": str(path.relative_to(ROOT)), "tp": tp, "fp": fp, "fn": fn,
+                "source_aliases": source_aliases, "other_unmatched": fp - source_aliases,
+                "unversioned_matches": unversioned_matches,
                 "precision": round(precision, 6), "recall": round(recall, 6), "f1": round(f1, 6),
             })
             per_tool[tool] = {component["_identity"] for component in predicted if component.get("_identity")}
             for component in extras:
                 weak = component.get("_weak_match")
+                source_identity = component.get("_identity")
+                source_match = next((row for row in expected
+                                     if source_identity and row.get("_source_identity") == source_identity), None)
                 mismatches.append({
-                    "image_id": image_id, "tool": tool, "kind": "extra_or_weak_match",
+                    "image_id": image_id, "tool": tool,
+                    "kind": "source_package_alias" if source_match else "extra_or_weak_match",
                     "name": component.get("name", ""), "version": component.get("version", ""),
                     "ecosystem": component.get("ecosystem", ""), "purl": component.get("purl", ""),
                     "weak_ground_truth_candidate": weak.get("name", "") if isinstance(weak, dict) else "",
-                    "evidence": "",
+                    "source_ground_truth_candidate": source_match.get("name", "") if source_match else "",
+                    "evidence": source_match.get("evidence", "") if source_match else "",
                 })
             for component in missed:
                 mismatches.append({
                     "image_id": image_id, "tool": tool, "kind": "missing",
                     "name": component.get("name", ""), "version": component.get("version", ""),
                     "ecosystem": component.get("ecosystem", ""), "purl": component.get("purl", ""),
-                    "weak_ground_truth_candidate": "", "evidence": component.get("evidence", ""),
+                    "weak_ground_truth_candidate": "", "source_ground_truth_candidate": "",
+                    "evidence": component.get("evidence", ""),
                 })
         for left, right in itertools.combinations(TOOLS, 2):
             a, b = per_tool[left], per_tool[right]
@@ -234,17 +259,20 @@ def main() -> int:
                 "union": len(union), "jaccard": round(len(a & b) / len(union), 6) if union else 1.0,
             })
 
-    REPORT_ROOT.mkdir(parents=True, exist_ok=True)
-    csv_write(REPORT_ROOT / "accuracy_by_image.csv", metrics, [
-        "image_id", "tool", "truth_state", "status", "sbom_path", "tp", "fp", "fn", "precision", "recall", "f1",
+    report_root = REPORT_ROOT / args.truth_state
+    report_root.mkdir(parents=True, exist_ok=True)
+    csv_write(report_root / "accuracy_by_image.csv", metrics, [
+        "image_id", "tool", "truth_state", "status", "sbom_path", "tp", "fp", "fn",
+        "source_aliases", "other_unmatched", "unversioned_matches", "precision", "recall", "f1",
     ])
-    csv_write(REPORT_ROOT / "mismatches.csv", mismatches, [
+    csv_write(report_root / "mismatches.csv", mismatches, [
         "image_id", "tool", "kind", "name", "version", "ecosystem", "purl", "weak_ground_truth_candidate", "evidence",
+        "source_ground_truth_candidate",
     ])
-    csv_write(REPORT_ROOT / "pairwise_agreement.csv", agreements, [
+    csv_write(report_root / "pairwise_agreement.csv", agreements, [
         "image_id", "tool_a", "tool_b", "components_a", "components_b", "intersection", "union", "jaccard",
     ])
-    print("Reports written to " + str(REPORT_ROOT.relative_to(ROOT)))
+    print("Reports written to " + str(report_root.relative_to(ROOT)))
     if any(row["status"] == "no_ground_truth" for row in metrics):
         print("Some images have SBOMs but no ground-truth rows for state '" + args.truth_state + "'.")
     return 0

@@ -80,7 +80,7 @@ def main() -> int:
         fields.append("retrieved_at")
     temporary = CSV_PATH.with_suffix(".csv.tmp")
     with temporary.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     temporary.replace(CSV_PATH)

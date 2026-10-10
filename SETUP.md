@@ -52,7 +52,7 @@ Run only a selected pilot image with `--images node-controlled`. The controlled 
 
 Populate data/ground_truth.csv using independent evidence from image package databases, installed metadata, manifests, JARs, and shared libraries. Label each component as declared, installed, present, and/or used; include evidence and reviewer initials.
 
-The first collector implementation extracts the image filesystem and records installed dpkg/apk packages plus unpacked npm package metadata without consulting the three evaluated generators. For an image containing a root `package.json`, it marks whether an installed npm package is a direct dependency there; this does not establish runtime use.
+The collector extracts the image filesystem and records dpkg/apk binary names plus source-package metadata, installed npm package metadata, standalone Yarn metadata, and application manifests without consulting the evaluated generators. It distinguishes package metadata in `node_modules` from test fixtures/subpath manifests, and marks app manifests as present rather than installed dependencies. For an image with a root `package.json`, it marks direct npm dependencies; this does not establish runtime use.
 
     python3 scripts/collect_ground_truth.py
 
@@ -60,7 +60,7 @@ The first collector implementation extracts the image filesystem and records ins
 
 Reports are written under artifacts/reports/: accuracy by image and tool, component mismatches, and pairwise tool agreement. Matching prioritizes exact PURL, then normalized ecosystem/name/version. Name-only matches are reported as weak matches and do not count as true positives. The initial script calculates component-set metrics; dependency-edge and field-accuracy analysis are follow-up implementation tasks.
 
-The current comparison filters predictions to package ecosystems present in the independent truth for each image, combines npm `group` and `name` for scoped packages, and counts unique ecosystem/name/version identities (nested duplicate copies do not add another component). This is a pilot scope, not a claim that file records or ungrounded component classes are incorrect. Current npm truth means “installed/present in node_modules,” not “executed/used.”
+Reports are separated by truth state under `artifacts/reports/installed/` and `artifacts/reports/present/`. The comparison filters predictions to ecosystems represented in the independent truth, combines npm `group` and `name` for scoped packages, and counts unique ecosystem/name/version identities (nested duplicate copies do not add another component). It retains strict package-name metrics while separately labeling exact-version Debian/Alpine source-name aliases in `source_aliases` and the mismatch report; aliases are not silently converted into binary-package matches. Unversioned matches are counted separately because they support presence, not version accuracy. This is a pilot scope, not a claim that file records or ungrounded component classes are incorrect. “Present” does not mean “executed/used.”
 
 ## Team workflow
 

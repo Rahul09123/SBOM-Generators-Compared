@@ -18,7 +18,7 @@ The student confirmed they are carrying out the project alone. The execution pla
 - Added `scripts/collect_ground_truth.py`. It reads dpkg/apk package databases from exported image filesystems and reads installed npm package metadata from `node_modules`; it does not use Syft, Trivy, or cdxgen as the answer key.
 - Collected 1,329 rows across five image ecosystems/datasets: 440 OS package records plus npm metadata (counts can include repeated package names/versions across distinct images). Juice Shop has no supported OS database found by the initial collector, but its installed npm packages were recorded.
 - Added scope filtering to the comparator so component accuracy is calculated only for package ecosystems represented in that image's independent truth. Ungrounded file records are not mislabeled as false positives.
-- Exploratory installed-component results are generated in ignored `artifacts/reports/accuracy_by_image.csv`, `mismatches.csv`, and `pairwise_agreement.csv`. For OS-package baselines, Syft and Trivy matched the collected package set in the initial run; cdxgen included unmatched package identities requiring review. The initial npm comparison was affected by a scoped-package normalization defect and is superseded by the audit recorded below. All results remain preliminary single-run observations, not final claims.
+- Exploratory installed-component results were generated under ignored `artifacts/reports/`. For OS-package baselines, Syft and Trivy matched the collected binary-package set in the initial run; cdxgen included names not found as binary package identities. The later source-metadata audit below established exact-version source-package mappings for most such names. The initial npm comparison was affected by a scoped-package normalization defect and is superseded by the audit recorded below. All results remain preliminary single-run observations, not final claims.
 - Important limitations: npm package metadata is evidence of installed/present, not declared or used; independently validate package metadata completeness and parser behavior. The OS/npm truth has not undergone manual audit. Image architecture is ARM64. Only one run per tool/image exists. Accuracy currently covers component-set matching only; dependency-edge correctness, field accuracy, repeatability, runtime, and vulnerability impact remain future work.
 
 ### Immediate next steps
@@ -45,10 +45,18 @@ Changes are local and uncommitted/unpushed as of this log entry.
 
 ### Next actions after this audit
 
-1. Triage each remaining unmatched package identity against package-manager records and installed files; distinguish true over-detection from aliasing or inventory limitations.
-2. Add a small Python controlled fixture and improve ground-truth collection from Python metadata/lockfiles.
-3. Add Java JAR-ground-truth before making ecosystem-wide claims.
-4. Add field/dependency-edge measures, then repeat scans under the frozen protocol and run a separate same-scanner vulnerability-impact experiment.
+1. Add a small Python controlled fixture and improve ground-truth collection from Python metadata/lockfiles.
+2. Add Java JAR-ground-truth before making ecosystem-wide claims.
+3. Add field/dependency-edge measures, then repeat scans under the frozen protocol and run a separate same-scanner vulnerability-impact experiment.
+
+### Follow-up mismatch triage — 2026-10-10
+
+- Verified the dominant cdxgen OS-package mismatch class directly against `dpkg-query` in the Debian image. For example, installed `gcc-12-base` reports source package `gcc-12` at the same version; installed `libacl1` reports source `acl`; `libgnutls30` reports source `gnutls28`. The Debian status database's `Source` field therefore explains these cdxgen names as source-package identities rather than arbitrary detections. The same source-name metadata is now captured from dpkg; Alpine's apk `o:` origin is recorded similarly.
+- The comparison keeps strict binary/package-name precision and recall unchanged, but separately classifies source-name identities with exact source-version evidence. Across the pilot there are 221 such cdxgen aliases. They should be reported as representation/granularity differences, not silently merged with binary package names.
+- Improved npm inventory semantics: Yarn under `/opt/yarn-v1.22.22` is captured as installed; application root manifests (Juice Shop, frontend, and the controlled app) are marked present but not installed dependencies; nested test fixtures and subpath `package.json` files are present but not treated as installed packages. Unversioned identities remain visible for presence analysis and are separately counted.
+- Ground truth is now 1,695 rows and includes `source_name`/`source_version`. CSV writers use LF line endings to pass Git whitespace checks. Comparison output is separated by truth state in `artifacts/reports/installed/` and `artifacts/reports/present/`.
+- In present-state Juice Shop comparison, Syft has two missing package identities (`portscanner`, `toposort-class`); Trivy has five missing metadata identities, including one hashids subpath and four test-fixture manifests; cdxgen matches all identities in this current inventory. In installed-state comparison, the fixture manifests are excluded, while app-root package identities are not treated as installed dependencies. These are single-image, single-run observations and require review before publication.
+- The controlled Node image's strict installed-state comparison now has Syft and Trivy each at TP=343, FP=1, FN=0; cdxgen TP=343, FP=39, FN=0, of which 38 are source-package aliases. The remaining one is not yet adjudicated. For present-state, all three match the inventoried component identities except the cdxgen source aliases.
 
 ## Project context
 
