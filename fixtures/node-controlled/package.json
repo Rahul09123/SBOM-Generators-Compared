@@ -1,0 +1,14 @@
+{
+  "name": "sbom-controlled-node",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Small controlled Node.js application for SBOM comparison",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "4.21.2",
+    "lodash": "4.17.21"
+  }
+}

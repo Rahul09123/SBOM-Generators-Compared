@@ -1,0 +1,5 @@
+tool,version,installation_method,verified_on,notes
+syft,1.54.1,Homebrew,2026-10-10,"Record architecture and recheck before final experiment"
+trivy,0.75.0,Homebrew,2026-10-10,"Record architecture and recheck before final experiment"
+cdxgen,13.0.0,project-local npm package,2026-10-10,"Pinned in .tools/cdxgen/package-lock.json"
+docker,"29.4.2 (linux/arm64)",Docker Desktop,2026-10-10,"Experiment platform; container images are pinned to linux/arm64 digests"

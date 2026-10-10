@@ -78,6 +78,8 @@ Build these images using locked dependencies:
 3. Java Spring Boot application with direct and transitive Maven dependencies.
 4. Native-library image containing explicitly installed `.so` files and a dynamically loaded library.
 
+**Implemented pilot fixture:** `fixtures/node-controlled/` builds a small Express application using the digest-pinned Node 22 Bookworm base image, with exact direct dependencies Express 4.21.2 and Lodash 4.17.21 in a committed npm lockfile. This controlled image has been added to the pilot corpus; it is an initial fixture, not a substitute for the broader final dataset.
+
 ### 5.3 Real-world application images
 
 Recommended projects:

@@ -1,5 +1,55 @@
 # Project Memory Log
 
+## Execution log — 2026-10-10
+
+The student confirmed they are carrying out the project alone. The execution plan is therefore a single-person workflow: one owner handles the corpus/tooling, ground truth, analysis, and writing in sequential milestones; the original three role areas remain useful as task buckets but are not parallel assignments.
+
+### Step 1: reproducible pilot environment and corpus
+
+- Installed Syft 1.54.1 and Trivy 0.75.0 using Homebrew.
+- Pinned cdxgen 13.0.0 as a repository-local npm dependency in `.tools/cdxgen/` with a lockfile.
+- Docker Desktop/Engine used: 29.4.2, linux/arm64.
+- Added `.gitignore`, `SETUP.md`, `data/images.csv`, `data/tools.csv`, and scripts for image pinning, SBOM generation, ground-truth collection, and comparison.
+- Resolved and pinned six linux/arm64 images by digest: Alpine 3.22, Debian Bookworm slim, Python 3.12 slim Bookworm, Node 22 Bookworm slim, Eclipse Temurin 21 JRE Jammy, and OWASP Juice Shop (source release still needs to be tied to its image digest).
+- Generated one CycloneDX JSON per each of the three tools for each image: 18 successful pilot SBOMs. Raw outputs and run manifests are under ignored `artifacts/`.
+
+### Step 2: independent truth and exploratory comparison
+
+- Added `scripts/collect_ground_truth.py`. It reads dpkg/apk package databases from exported image filesystems and reads installed npm package metadata from `node_modules`; it does not use Syft, Trivy, or cdxgen as the answer key.
+- Collected 1,329 rows across five image ecosystems/datasets: 440 OS package records plus npm metadata (counts can include repeated package names/versions across distinct images). Juice Shop has no supported OS database found by the initial collector, but its installed npm packages were recorded.
+- Added scope filtering to the comparator so component accuracy is calculated only for package ecosystems represented in that image's independent truth. Ungrounded file records are not mislabeled as false positives.
+- Exploratory installed-component results are generated in ignored `artifacts/reports/accuracy_by_image.csv`, `mismatches.csv`, and `pairwise_agreement.csv`. For OS-package baselines, Syft and Trivy matched the collected package set in the initial run; cdxgen included unmatched package identities requiring review. The initial npm comparison was affected by a scoped-package normalization defect and is superseded by the audit recorded below. All results remain preliminary single-run observations, not final claims.
+- Important limitations: npm package metadata is evidence of installed/present, not declared or used; independently validate package metadata completeness and parser behavior. The OS/npm truth has not undergone manual audit. Image architecture is ARM64. Only one run per tool/image exists. Accuracy currently covers component-set matching only; dependency-edge correctness, field accuracy, repeatability, runtime, and vulnerability impact remain future work.
+
+### Immediate next steps
+
+1. Audit collector records and mismatches; manually spot-check package identities and versions against extracted source metadata.
+2. Resolve and record Juice Shop source release/commit corresponding to the pinned image digest; decide whether to retain it in the final corpus.
+3. Add controlled application images with known lockfiles and declared-vs-installed distinctions. Add Java JAR and Python package ground truth before claiming ecosystem-wide coverage.
+4. Improve PURL normalization and distinguish duplicate/ambiguous identities.
+5. Run repeats after protocol freeze; measure time/resources, dependency edges, field completeness, then vulnerability scanning as a separate same-scanner/database experiment.
+6. Update the research question and novelty statement based on audited results; keep pilot claims separate from final results.
+
+Changes are local and uncommitted/unpushed as of this log entry.
+
+### Follow-up execution — mismatch audit and controlled Node fixture
+
+- Audited the first comparison report and found a normalization defect: Trivy and cdxgen can encode scoped npm package names as `group` + `name` (for example, `@isaacs` + `cliui`) while the independent inventory stores `@isaacs/cliui`. Updated identity normalization to join the fields before matching.
+- Found repeated copies of the same ecosystem/name/version at different nested `node_modules` paths. Updated the component-set metric to deduplicate by that identity; raw SBOMs and all ground-truth evidence rows remain unchanged. This reports unique component identities, not installation occurrences.
+- Regenerated the comparison outputs. The initial npm comparison results in the previous log entry are superseded: after scope normalization and deduplication, the installed npm inventory is substantially better aligned across tools. The new results still require manual mismatch review.
+- Added `fixtures/node-controlled/`: a small Express app using Lodash, with Express 4.21.2 and Lodash 4.17.21 declared directly and locked in `package-lock.json`. It builds on the pinned Node 22 Bookworm digest. The local built image is pinned in the corpus using its immutable repository digest: `sbom-study/node-controlled@sha256:ce2a1aab30152c65c5a4f5c2be292aacbc26495e7a5df264c4dbdd85c8c90e94` (`linux/arm64`).
+- Extended the collector to distinguish direct npm dependencies in a root `package.json` from other packages present under `node_modules`. For this fixture, Express and Lodash are marked direct; installed metadata alone is not considered evidence of runtime use.
+- Generated all three SBOMs successfully for the controlled image and added its ground truth. The image contains 355 evidence rows (88 dpkg rows and 267 npm metadata rows; comparison deduplicates identities). In the current installed-component comparison, unique truth identities total 342: Syft TP=342/FP=2/FN=0, Trivy TP=342/FP=2/FN=0, cdxgen TP=342/FP=40/FN=0. Treat these only as exploratory; the unmatched cdxgen set is largely OS-package identities absent from dpkg status and must be adjudicated before labeling as false positives.
+- Improved `scripts/run_experiment.py` with an `--images` selector for focused runs, and fixed tool-version parsing so new manifests record plain semantic versions.
+- README, SETUP, PROJECT_PLAN, and this log now describe the seven-image corpus and controlled fixture. Latest ground-truth file contains 1,684 rows after adding the controlled image.
+
+### Next actions after this audit
+
+1. Triage each remaining unmatched package identity against package-manager records and installed files; distinguish true over-detection from aliasing or inventory limitations.
+2. Add a small Python controlled fixture and improve ground-truth collection from Python metadata/lockfiles.
+3. Add Java JAR-ground-truth before making ecosystem-wide claims.
+4. Add field/dependency-edge measures, then repeat scans under the frozen protocol and run a separate same-scanner vulnerability-impact experiment.
+
 ## Project context
 
 - Project elective period: August–December 2026.
@@ -588,3 +638,19 @@ The project is complete when:
 - Reproducibility checks have been performed.
 - Threats to validity are documented.
 - The final paper and practitioner guide are complete.
+
+## Implementation progress — 2026-10-10
+
+Started converting the plan into a runnable repository scaffold:
+
+- Added SETUP.md with tool prerequisites, corpus pinning, scan, and analysis workflow.
+- Added .gitignore for generated reports, image archives, local Python environments, and editor files.
+- Added data/images.csv with six proposed pilot entries, candidate tags, a target platform, and disabled-by-default status.
+- Added data/tools.csv to record exact tool/runtime versions.
+- Added data/ground_truth.csv with declared, installed, present, and used labels plus evidence and reviewer fields.
+- Added scripts/pin_images.py to pull candidate references for the target platform and write immutable RepoDigest references to the image manifest without enabling scans.
+- Added scripts/run_experiment.py to enforce digest references, record tool versions and commands, generate CycloneDX JSON SBOMs, retain per-scan results, and write a run manifest.
+- Added scripts/compare_sboms.py to match generated CycloneDX components against selected ground-truth state and output per-image metrics, mismatch records, and pairwise Jaccard agreement.
+- Updated README.md with the research workflow and quick start.
+
+The first analysis implementation covers component-set comparison. Dependency-edge accuracy, detailed metadata-field accuracy, ecosystem-stratified aggregation, and statistical testing remain planned enhancements. No experimental scans have been run yet; images remain disabled until digests are resolved and reviewed.

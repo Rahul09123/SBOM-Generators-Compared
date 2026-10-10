@@ -1,0 +1,10 @@
+artifacts/
+images/
+*.tar
+*.oci
+.venv/
+.tools/cdxgen/node_modules/
+__pycache__/
+*.py[cod]
+.DS_Store
+.vscode/
